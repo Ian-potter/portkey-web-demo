@@ -5,7 +5,7 @@ import { useUpdateEffect } from 'react-use';
 import { eventBus } from '@/utils';
 import { BaseReCaptchaHandler, CommonModal, setLoading } from '@portkey/did-ui-react';
 
-const ReCaptchaIframe = `${'https://openlogin-testnet.portkey.finance'}/recaptcha?siteKey=6LfR_bElAAAAAJSOBuxle4dCFaciuu9zfxRQfQC0`;
+const ReCaptchaIframe = `${'https://openlogin-testnet.portkey.finance'}/recaptcha`;
 
 export default function ReCaptchaModal() {
   const [modalInfo, setModalInfo] = useState<
