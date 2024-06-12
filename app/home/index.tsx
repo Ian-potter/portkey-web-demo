@@ -1,5 +1,5 @@
 'use client';
-import { did } from '@portkey/did';
+import { CAInfo, did } from '@portkey/did';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   forgeWeb,
@@ -42,16 +42,11 @@ import ReactJson from 'react-json-view';
 import 'antd/dist/antd.variable.min.css';
 import { IPortkeyContract, getContractBasic } from '@portkey/contracts';
 import { getChain } from '@/utils/getChainInfo';
-import { TRANSFER_PARAMS, INIT_CONTRACT_PARAMS } from '@/constants/params';
+import { TRANSFER_PARAMS, INIT_CONTRACT_PARAMS, DID_CONFIG } from '@/constants/params';
 import BigNumber from 'bignumber.js';
 
 did.setConfig({
-  connectUrl: 'https://auth-aa-portkey-test.portkey.finance',
-  requestDefaults: {
-    baseURL: 'https://aa-portkey-test.portkey.finance',
-    timeout: 10000,
-  },
-  graphQLUrl: 'https://dapp-aa-portkey-test.portkey.finance/Portkey_V2_DID/PortKeyIndexerCASchema/graphql',
+  ...DID_CONFIG,
   storageMethod: new BaseAsyncStorage(),
 });
 
@@ -92,14 +87,14 @@ export default function Home() {
 
       const queryParams = {
         publicKey: keyPair.publicKey,
-        serviceURI: 'https://aa-portkey-test.portkey.finance',
+        serviceURI: DID_CONFIG.requestDefaults.baseURL,
         actionType: 'login',
         loginProvider: type,
         loginId,
         network: 'online',
       };
 
-      const loginUrl = `https://openlogin.portkey.finance/social-start?${qs.stringify({
+      const loginUrl = `https://openlogin-testnet.portkey.finance/social-start?${qs.stringify({
         b64Params: Buffer.from(JSON.stringify(queryParams)).toString('base64'),
       })}`;
 
@@ -109,7 +104,7 @@ export default function Home() {
       // connect socket
 
       await openloginSignal.doOpen({
-        url: 'https://aa-portkey-test.portkey.finance/communication',
+        url: `${DID_CONFIG.requestDefaults.baseURL}/communication`,
         clientId: loginId,
       });
 
@@ -451,6 +446,7 @@ export default function Home() {
   }, [pin]);
 
   const createPortkeyWallet = useLoginWallet();
+  const [aaInfo, setAaInfo] = useState<CAInfo>();
 
   const onCreateWallet = useCallback(
     async (type: 'register' | 'recovery') => {
@@ -467,6 +463,7 @@ export default function Home() {
       });
       singleMessage.success('success');
       await did.save(pin, WALLET_KEY);
+      did.didWallet.aaInfo.accountInfo && setAaInfo(did.didWallet.aaInfo.accountInfo);
     },
     [createPortkeyWallet, pin, state.step1FinishStore, state.step2FinishStore],
   );
@@ -508,7 +505,7 @@ export default function Home() {
     // If you do not use @portkey/did-ui-react, you can use the above method to obtain a token for the third-party authorization.
 
     ConfigProvider.setGlobalConfig({
-      serviceUrl: 'https://aa-portkey-test.portkey.finance',
+      serviceUrl: DID_CONFIG.requestDefaults.baseURL,
     });
     setOpen(true);
   }, []);
@@ -778,12 +775,23 @@ export default function Home() {
           </div>
 
           <div className="flex-1 bg-slate-50 p-4 ml-4">
+            <div className="break-all">
+              <h2>Default config</h2>
+              <Space>
+                <a href="https://doc.portkey.finance/docs/EnvironmentalConfiguration">View all Environmental config</a>
+                <a href="https://doc.portkey.finance/docs/SDKs/CoreSDK/TypeScript/@portkeyDid#didsetconfig">
+                  View all config
+                </a>
+              </Space>
+              <br />
+              <ReactJson src={DID_CONFIG} collapsed />
+            </div>
             {state.identifierInfo?.identifier && (
               <div>
                 <h2>identifierInfo:</h2>
                 {Object.entries(state.identifierInfo).map(item =>
                   item[0] !== 'token' ? (
-                    <div key={item[0]}>
+                    <div className="ml-2" key={item[0]}>
                       <span className="font-semibold">{`${item[0]}: `}</span>
                       <span className="break-all">
                         {typeof item[1] === 'object' ? <ReactJson src={item[1]} collapsed /> : JSON.stringify(item[1])}
@@ -798,13 +806,15 @@ export default function Home() {
             {state.manager && (
               <div>
                 <h2>Manager</h2>
-                <div>
-                  <span className="font-semibold">Address:&nbsp;</span>
-                  <span className="break-all">{state.manager.address}</span>
-                </div>
-                <div>
-                  <span className="font-semibold">PrivateKey:&nbsp;</span>
-                  <span className="break-all">{state.manager.privateKey}</span>
+                <div className="ml-2">
+                  <div>
+                    <span className="font-semibold">Address:&nbsp;</span>
+                    <span className="break-all">{state.manager.address}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">PrivateKey:&nbsp;</span>
+                    <span className="break-all">{state.manager.privateKey}</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -815,7 +825,7 @@ export default function Home() {
                 {Object.entries(state.verificationStore).map(item => {
                   console.log(typeof item[1] === 'object', 'item[1]', item[1]);
                   return (
-                    <div key={item[0]}>
+                    <div className="ml-2" key={item[0]}>
                       <span className="font-semibold">{`${item[0]}: `}</span>
                       <span className="break-all">
                         {typeof item[1] === 'object' ? <ReactJson src={item[1]} collapsed /> : JSON.stringify(item[1])}
@@ -832,7 +842,7 @@ export default function Home() {
                 <br />
                 <h2>step2Finish</h2>
                 {Object.entries(state.step2FinishStore).map(item => (
-                  <div className="flex" key={item[0]}>
+                  <div className="flex ml-2" key={item[0]}>
                     <span className="font-semibold">{`${item[0]}:`}</span>
                     &nbsp;
                     <span className="break-all">
@@ -841,6 +851,13 @@ export default function Home() {
                     <br />
                   </div>
                 ))}
+              </div>
+            )}
+            {aaInfo && (
+              <div className="break-all">
+                <br />
+                <h2>Portkey account</h2>
+                <ReactJson src={aaInfo} />
               </div>
             )}
           </div>
@@ -855,7 +872,7 @@ export default function Home() {
               {showRecaptcha && (
                 <iframe
                   style={{ width: '100%', border: '0' }}
-                  src={`https://openlogin.portkey.finance/recaptcha`}
+                  src={`https://openlogin-testnet.portkey.finance/recaptcha`}
                 />
               )}
               <br />
@@ -899,7 +916,7 @@ export default function Home() {
               </Space>
               <br />
             </Card>
-            <div className="flex-1 bg-slate-50 p-4 ml-4">
+            <div className="flex-1 bg-slate-50 p-4 ml-4 break-all">
               <div>
                 <h3>Init contract params</h3>
                 <ReactJson src={INIT_CONTRACT_PARAMS} collapsed />

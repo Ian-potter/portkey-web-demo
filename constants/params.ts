@@ -13,3 +13,12 @@ export const TRANSFER_PARAMS = {
   memo: 'transfer',
   caHash: 'xxxxxx',
 };
+
+export const DID_CONFIG = {
+  connectUrl: 'https://auth-aa-portkey-test.portkey.finance',
+  requestDefaults: {
+    baseURL: 'https://aa-portkey-test.portkey.finance',
+    timeout: 10000,
+  },
+  graphQLUrl: 'https://dapp-aa-portkey-test.portkey.finance/Portkey_V2_DID/PortKeyIndexerCASchema/graphql',
+};
