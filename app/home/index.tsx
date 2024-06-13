@@ -44,6 +44,7 @@ import { IPortkeyContract, getContractBasic } from '@portkey/contracts';
 import { getChain } from '@/utils/getChainInfo';
 import { TRANSFER_PARAMS, INIT_CONTRACT_PARAMS, DID_CONFIG } from '@/constants/params';
 import BigNumber from 'bignumber.js';
+import Header from '@/components/Header';
 
 did.setConfig({
   ...DID_CONFIG,
@@ -580,12 +581,26 @@ export default function Home() {
 
   return (
     <PortkeyProvider networkType="TESTNET">
-      <main className="p-24 gap-2">
+      <Header />
+      <main className="p-24 pt-20 gap-2">
         <div className="flex">
           <div className="flex-1">
-            <Card title="1. identifier">
+            <Card
+              title={
+                <div>
+                  <span>1. identifier</span>
+                  <br />
+                  <a
+                    className="text-xs	ml-1"
+                    href="https://doc.portkey.finance/docs/What-is-a-login-account"
+                    target="_blank">
+                    What is a identifier?
+                  </a>
+                </div>
+              }>
               <div className="ml-2">
                 <h3>a. get identifier</h3>
+
                 <div>
                   <Input addonBefore="Email:" onChange={e => setInputVal(e.target.value)} onBlur={onCheckEmail} />
                 </div>
@@ -778,8 +793,12 @@ export default function Home() {
             <div className="break-all">
               <h2>Default config</h2>
               <Space>
-                <a href="https://doc.portkey.finance/docs/EnvironmentalConfiguration">View all Environmental config</a>
-                <a href="https://doc.portkey.finance/docs/SDKs/CoreSDK/TypeScript/@portkeyDid#didsetconfig">
+                <a target="_blank" href="https://doc.portkey.finance/docs/EnvironmentalConfiguration">
+                  View all Environmental config
+                </a>
+                <a
+                  target="_blank"
+                  href="https://doc.portkey.finance/docs/SDKs/CoreSDK/TypeScript/@portkeyDid#didsetconfig">
                   View all config
                 </a>
               </Space>
