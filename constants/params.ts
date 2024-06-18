@@ -1,4 +1,5 @@
 import BigNumber from 'bignumber.js';
+import { ZERO } from './misc';
 
 export const INIT_CONTRACT_PARAMS = {
   chainId: 'tDVW',
@@ -11,7 +12,6 @@ export const TRANSFER_PARAMS = {
   to: 'ELF_2LxtGrAkbzAgcBEqfPUuNNxeKsy5hmKFuySshoWwDBhb4iAZ6n_tDVW',
   amount: new BigNumber(1).times(1e5).toFixed(),
   memo: 'transfer',
-  caHash: 'xxxxxx',
 };
 
 export const DID_CONFIG = {
@@ -21,4 +21,11 @@ export const DID_CONFIG = {
     timeout: 10000,
   },
   graphQLUrl: 'https://dapp-aa-portkey-test.portkey.finance/Portkey_V2_DID/PortKeyIndexerCASchema/graphql',
+};
+
+export const APPROVE_PARAMS = {
+  targetChainId: 'tDVW',
+  spender: '2LxtGrAkbzAgcBEqfPUuNNxeKsy5hmKFuySshoWwDBhb4iAZ6n',
+  symbol: 'ELF',
+  amount: ZERO.plus(10).times(1e8).toFixed(),
 };

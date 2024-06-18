@@ -19,32 +19,40 @@ import {
   ConfigProvider,
   ErrorInfo,
   GuardianApproval,
-  OnErrorFunc,
+  IGuardiansApproved,
   PortkeyProvider,
-  PortkeyStyleProvider,
   handleErrorMessage,
   setLoading,
   singleMessage,
 } from '@portkey/did-ui-react';
 import '@portkey/did-ui-react/dist/assets/index.css';
 import { ChainId } from '@portkey/types';
-import { OperationTypeEnum } from '@portkey/services';
 import { BaseAsyncStorage } from '@/utils/asyncStorage';
 import { verification } from '@/utils/verification';
 import useReCaptchaModal from '@/hooks/useReCaptchaModal';
 import ReCaptchaModal from '@/components/ReCaptchaModal';
 import { useLoginWallet } from '@/hooks/useLoginWallet';
-import { AccountType } from '@portkey/services';
+import {
+  AccountType,
+  IWalletBalanceCheckResponse,
+  OperationTypeEnum,
+  IPaymentSecurityListResponse,
+  GuardiansApproved,
+  AccountTypeEnum,
+} from '@portkey/services';
 import clsx from 'clsx';
 import { getGuardianList } from '@/utils/getGuardians';
-import { Button, Card, Input, Space } from 'antd';
+import { Button, Card, Col, Divider, Input, Row, Space } from 'antd';
 import ReactJson from 'react-json-view';
 import 'antd/dist/antd.variable.min.css';
 import { IPortkeyContract, getContractBasic } from '@portkey/contracts';
 import { getChain } from '@/utils/getChainInfo';
-import { TRANSFER_PARAMS, INIT_CONTRACT_PARAMS, DID_CONFIG } from '@/constants/params';
+import { TRANSFER_PARAMS, INIT_CONTRACT_PARAMS, DID_CONFIG, APPROVE_PARAMS } from '@/constants/params';
 import BigNumber from 'bignumber.js';
 import Header from '@/components/Header';
+import { divDecimals, timesDecimals } from '@/utils/converter';
+import { ZERO } from '@/constants/misc';
+import { DEFAULT_DECIMAL } from '@/constants';
 
 did.setConfig({
   ...DID_CONFIG,
@@ -233,6 +241,7 @@ export default function Home() {
   }, [dispatch, onStep1Finish, state.identifierInfo]);
 
   const [inputChainId, setInputChainId] = useState<string>('tDVW');
+  const [targetChainId, setTargetChainId] = useState<ChainId>('tDVW');
 
   const onCheckChainId = useCallback(() => {
     if (inputChainId !== 'AELF' && inputChainId !== 'tDVW')
@@ -464,6 +473,7 @@ export default function Home() {
       });
       singleMessage.success('success');
       await did.save(pin, WALLET_KEY);
+      localStorage.setItem('originChainId', state.step1FinishStore.chainId);
       did.didWallet.aaInfo.accountInfo && setAaInfo(did.didWallet.aaInfo.accountInfo);
     },
     [createPortkeyWallet, pin, state.step1FinishStore, state.step2FinishStore],
@@ -476,24 +486,24 @@ export default function Home() {
 
   const [guardianList, setGuardianList] = useState<BaseGuardianItem[]>();
 
-  const [open, setOpen] = useState<boolean>();
+  const [openInfo, setOpenType] = useState<
+    { operationType: OperationTypeEnum; operationDetails: string } | undefined
+  >();
 
-  const onGetGuardianList = useCallback(async () => {
-    try {
-      const { identifier = '', chainId = 'tDVW' } = state.step1FinishStore ?? {};
-      setLoading(true);
+  console.log(openInfo, 'openInfo====');
+
+  const onGetGuardianList = useCallback(
+    async ({ identifier, chainId, caHash }: { identifier?: string; chainId: ChainId; caHash?: string }) => {
       const list = await getGuardianList({
         identifier,
         chainId,
+        caHash,
       });
       singleMessage.success('Get guardian list success!');
       setGuardianList(list);
-    } catch (error) {
-      singleMessage.error(handleErrorMessage(error, 'getGuardianList error'));
-    } finally {
-      setLoading(false);
-    }
-  }, [state.step1FinishStore]);
+    },
+    [],
+  );
 
   const onApprovalError = useCallback(
     ({ error, errorFields }: ErrorInfo<any>) => singleMessage.error(handleErrorMessage(error, errorFields)),
@@ -508,7 +518,12 @@ export default function Home() {
     ConfigProvider.setGlobalConfig({
       serviceUrl: DID_CONFIG.requestDefaults.baseURL,
     });
-    setOpen(true);
+    setOpenType({
+      operationType: OperationTypeEnum.communityRecovery,
+      operationDetails: JSON.stringify({
+        manager: did.didWallet.managementAccount?.address,
+      }),
+    });
   }, []);
 
   const portkeyContractRef = useRef<IPortkeyContract>();
@@ -542,6 +557,10 @@ export default function Home() {
     }
   }, []);
 
+  const [transferParams, setTransferParams] = useState(TRANSFER_PARAMS);
+
+  const [approveParams, setApproveParams] = useState(APPROVE_PARAMS);
+
   const onTransfer = useCallback(async () => {
     if (!portkeyContractRef.current) return singleMessage.error('Please Init contract');
     if (!did.didWallet.aaInfo.accountInfo?.caHash) return singleMessage.error('Please login or unlock!');
@@ -549,7 +568,7 @@ export default function Home() {
       setLoading(true);
 
       const result = await portkeyContractRef.current.callSendMethod('ManagerTransfer', '', {
-        ...TRANSFER_PARAMS,
+        ...transferParams,
         caHash: did.didWallet.aaInfo.accountInfo?.caHash,
       });
       if (result.error) return singleMessage.error(handleErrorMessage(result.error, 'ManagerTransfer error'));
@@ -559,7 +578,71 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [transferParams]);
+
+  const onManagerApproveHandler = useCallback(async () => {
+    if (!portkeyContractRef.current) return singleMessage.error('Please Init contract');
+    if (!did.didWallet.aaInfo.accountInfo?.caHash) return singleMessage.error('Please login or unlock!');
+    try {
+      setLoading(true, 'Get GuardianList...');
+      const originChainId = (localStorage.getItem('originChainId') as ChainId) || 'tDVW';
+
+      await onGetGuardianList({ caHash: did.didWallet.aaInfo.accountInfo.caHash, chainId: originChainId });
+
+      setOpenType({
+        operationDetails: JSON.stringify({
+          spender: approveParams.spender,
+          symbol: approveParams.symbol,
+          amount: approveParams.amount,
+        }),
+        operationType: OperationTypeEnum.managerApprove,
+      });
+    } catch (error) {
+      singleMessage.error(handleErrorMessage(error, 'ManagerApprove error'));
+    } finally {
+      setLoading(false);
+    }
+  }, [approveParams.amount, approveParams.spender, approveParams.symbol, onGetGuardianList]);
+
+  const onManagerApprove = useCallback(
+    async (approvalInfo: IGuardiansApproved[]) => {
+      if (!portkeyContractRef.current) return singleMessage.error('Please Init contract');
+      if (!did.didWallet.aaInfo.accountInfo?.caHash) return singleMessage.error('Please login or unlock!');
+      try {
+        setLoading(true, 'ManagerApprove...');
+        const params = {
+          caHash: did.didWallet.aaInfo.accountInfo?.caHash,
+          spender: approveParams.spender,
+          symbol: approveParams.symbol,
+          amount: approveParams.amount,
+          guardiansApproved: approvalInfo,
+        };
+
+        console.log('ManagerApprove params:', params);
+
+        const result = await portkeyContractRef.current.callSendMethod('ManagerApprove', '', params);
+
+        if (result.error) throw result.error;
+        singleMessage.success(`transactionId: ${result.transactionId}`);
+        setLoading(true, 'GetAllowance...');
+
+        const allowanceRes = await tokenContractRef.current?.callViewMethod('GetAllowance', {
+          symbol: approveParams.symbol,
+          owner: did.didWallet.aaInfo.accountInfo.caAddress,
+          spender: approveParams.spender,
+        });
+        if (allowanceRes?.error || !allowanceRes) throw allowanceRes?.error;
+        const allowance = divDecimals(allowanceRes.data.allowance ?? allowanceRes.data.amount ?? 0, 8);
+        singleMessage.success(`allowance: ${allowance}`);
+      } catch (error) {
+        console.log('ManagerTransfer error:', error);
+        singleMessage.error(handleErrorMessage(error, 'ManagerTransfer error'));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [approveParams.amount, approveParams.spender, approveParams.symbol],
+  );
 
   const onGetBalance = useCallback(async () => {
     try {
@@ -578,6 +661,144 @@ export default function Home() {
       setLoading(false);
     }
   }, []);
+
+  const checkLogin = useCallback(() => {
+    if (!did.didWallet.aaInfo.accountInfo?.caHash || !did.didWallet.managementAccount?.privateKey) {
+      singleMessage.error('Please login or unlock!');
+      return false;
+    }
+    return true;
+  }, []);
+
+  const onCheckWalletSecurity = useCallback(async () => {
+    if (!checkLogin()) return;
+    try {
+      setLoading(true);
+
+      const result: IWalletBalanceCheckResponse = await did.services.security.getWalletBalanceCheck({
+        caHash: did.didWallet.aaInfo.accountInfo!.caHash,
+        checkTransferSafeChainId: targetChainId,
+      });
+      if (result.isTransferSafe) return singleMessage.success('The transfer is safe, you can transfer');
+      const originChainId = localStorage.getItem('originChainId');
+
+      if (originChainId === targetChainId && result.isOriginChainSafe)
+        return singleMessage.success('The transfer is safe, you can transfer');
+
+      if (result.isSynchronizing && result.isOriginChainSafe) return singleMessage.success('Guaridan is syncing...');
+
+      return singleMessage.success(
+        'You have too few guardians to protect your wallet. Please add at least one more guardian before proceeding.',
+      );
+    } catch (error) {
+      singleMessage.error(handleErrorMessage(error, 'ManagerTransfer error'));
+    } finally {
+      setLoading(false);
+    }
+  }, [checkLogin, targetChainId]);
+
+  const [paymentSecurityList, setPaymentSecurityList] = useState<IPaymentSecurityListResponse['data']>();
+
+  const onGetPaymentSecurity = useCallback(async () => {
+    if (!checkLogin()) return;
+
+    try {
+      setLoading(true);
+
+      const res: IPaymentSecurityListResponse = await did.services.security.getPaymentSecurityList({
+        caHash: did.didWallet.aaInfo.accountInfo!.caHash,
+        skipCount: 0,
+        maxResultCount: 50,
+      });
+      setPaymentSecurityList(res.data);
+      console.log(res, 'res==getPaymentSecurityList');
+    } catch (error) {
+      singleMessage.error(handleErrorMessage(error, 'onGetPaymentSecurity error'));
+    } finally {
+      setLoading(false);
+    }
+  }, [checkLogin]);
+
+  const [paymentCount, setPaymentCount] = useState<string>('1');
+  const [paymentLimit, setPaymentLimit] = useState<any>();
+
+  const onCheckPaymentSecurity = useCallback(async () => {
+    if (!checkLogin()) return;
+
+    if (!portkeyContractRef.current) return singleMessage.error('Please Init contract');
+    try {
+      setLoading(true);
+      const [limitReq, defaultLimitReq] = await Promise.all([
+        portkeyContractRef.current.callViewMethod('GetTransferLimit', {
+          caHash: did.didWallet.aaInfo.accountInfo!.caHash,
+          symbol: 'ELF',
+        }),
+        portkeyContractRef.current.callViewMethod('GetDefaultTokenTransferLimit', {
+          caHash: did.didWallet.aaInfo.accountInfo!.caHash,
+          symbol: 'ELF',
+        }),
+      ]);
+      console.log(limitReq, defaultLimitReq);
+      const bigAmount = timesDecimals(paymentCount, DEFAULT_DECIMAL);
+      let dailyBalance, singleBalance, dailyLimit, defaultDailyLimit, defaultSingleLimit;
+
+      if (!limitReq?.error) {
+        const { singleLimit, dailyLimit: contractDailyLimit, dailyTransferredAmount } = limitReq.data || {};
+        dailyLimit = ZERO.plus(contractDailyLimit);
+        dailyBalance = dailyLimit.minus(dailyTransferredAmount);
+        singleBalance = ZERO.plus(singleLimit);
+      } else if (!defaultLimitReq?.error) {
+        const { defaultLimit } = defaultLimitReq.data || {};
+        dailyLimit = ZERO.plus(defaultLimit);
+        dailyBalance = dailyLimit;
+        singleBalance = ZERO.plus(defaultLimit);
+      }
+
+      if (!dailyLimit || !dailyBalance || !singleBalance || dailyBalance.isNaN() || singleBalance.isNaN())
+        return singleMessage.error('CheckPaymentSecurity error');
+
+      const paymentLimit = {
+        isDailyLimited: !dailyLimit.eq(-1) && bigAmount.gt(dailyBalance),
+        isSingleLimited: !singleBalance.eq(-1) && bigAmount.gt(singleBalance),
+        dailyLimit,
+        showDailyLimit: divDecimals(dailyLimit, DEFAULT_DECIMAL),
+        dailyBalance,
+        showDailyBalance: divDecimals(dailyBalance, DEFAULT_DECIMAL),
+        singleBalance,
+        showSingleBalance: divDecimals(singleBalance, DEFAULT_DECIMAL),
+        defaultDailyLimit,
+        defaultSingleLimit,
+      };
+      setPaymentLimit(paymentLimit);
+      if (paymentLimit.isDailyLimited) singleMessage.error('Exceeding daily limit!');
+    } catch (error) {
+      singleMessage.error(handleErrorMessage(error, 'CheckPaymentSecurity error'));
+    } finally {
+      setLoading(false);
+    }
+  }, [checkLogin, paymentCount]);
+
+  const onGuardianApprovalConfirm = useCallback(
+    async (approvalInfo: GuardiansApproved[]) => {
+      singleMessage.success('Approve success');
+      if (openInfo?.operationType === OperationTypeEnum.communityRecovery) {
+        dispatch({ type: Actions.setState, payload: { step2FinishStore: approvalInfo } });
+      } else if (openInfo?.operationType === OperationTypeEnum.managerApprove) {
+        const approved: IGuardiansApproved[] = approvalInfo.map(guardian => ({
+          type: AccountTypeEnum[guardian.type || 'Google'],
+          identifierHash: guardian.identifierHash || '',
+          verificationInfo: {
+            id: guardian.verifierId,
+            signature: Object.values(Buffer.from(guardian.signature as any, 'hex')),
+            verificationDoc: guardian.verificationDoc,
+          },
+        }));
+        onManagerApprove(approved);
+      }
+      setOpenType(undefined);
+    },
+    [dispatch, onManagerApprove, openInfo?.operationType],
+  );
 
   return (
     <PortkeyProvider networkType="TESTNET">
@@ -754,7 +975,22 @@ export default function Home() {
                     <div>
                       <div>
                         <span>b.&nbsp;getGuardianList:&nbsp;</span>
-                        <Button onClick={onGetGuardianList}>confirm</Button>
+                        <Button
+                          onClick={async () => {
+                            try {
+                              setLoading(true);
+                              await onGetGuardianList({
+                                identifier: state.step1FinishStore?.identifier,
+                                chainId: state.step1FinishStore?.chainId || 'tDVW',
+                              });
+                            } catch (error) {
+                              singleMessage.error(handleErrorMessage(error));
+                            } finally {
+                              setLoading(false);
+                            }
+                          }}>
+                          confirm
+                        </Button>
                       </div>
                       <div>
                         <span>c.&nbsp;guardian approve:&nbsp;</span>
@@ -881,12 +1117,12 @@ export default function Home() {
             )}
           </div>
         </div>
-        <div>
-          <Card title="Common utils">
-            <div className="ml-2">
+
+        <Card title="Common utils">
+          <Row className="mb-2">
+            <Col span={12}>
               <div>
-                <span>get google recaptcha:&nbsp;</span>
-                <Button onClick={onGoogleRecaptcha}>confirm</Button>
+                <Button onClick={onGoogleRecaptcha}>show recaptcha and get reCaptchaToken</Button>
               </div>
               {showRecaptcha && (
                 <iframe
@@ -894,9 +1130,12 @@ export default function Home() {
                   src={`https://openlogin-testnet.portkey.finance/recaptcha`}
                 />
               )}
-              <br />
+            </Col>
+          </Row>
+          <Row className="mb-2">
+            <Col span={12}>
               <Space>
-                <Input placeholder="Input user pin" onChange={e => setPin(e.target.value)} onBlur={onCheckPin} />
+                <Input placeholder="Input pin" onChange={e => setPin(e.target.value)} onBlur={onCheckPin} />
                 <Button
                   onClick={async () => {
                     const wallet = await did.load(pin, WALLET_KEY);
@@ -906,45 +1145,138 @@ export default function Home() {
                   }}>
                   unlock
                 </Button>
-                <br />
               </Space>
-              <br />
+            </Col>
+
+            <Col span={12}>
               <Space>
-                <span>logout:&nbsp; </span>
                 <Button
                   onClick={async () => {
                     await did.logout({
                       chainId: 'tDVW',
                     });
                     did.config.storageMethod.removeItem(WALLET_KEY);
+                    localStorage.removeItem('originChainId');
                     singleMessage.success('logout');
                   }}>
                   logout
                 </Button>
               </Space>
-            </div>
+            </Col>
+          </Row>
+        </Card>
+        <br />
+        <div className="flex mt-4">
+          <Card title="Security check" className="flex-1">
+            <Row className="ml-2  mb-2">
+              <Col>
+                <Space>
+                  <Input
+                    placeholder="Please enter the target chain you want to approve token."
+                    value={targetChainId}
+                    onChange={e => setTargetChainId(e.target.value as ChainId)}
+                  />
+                  <Button onClick={onCheckWalletSecurity}>Check wallet security</Button>
+                </Space>
+              </Col>
+              <Col>
+                <a
+                  className="text-xs	ml-1"
+                  href="https://doc.portkey.finance/docs/How-to-customise-transfer-limits"
+                  target="_blank">
+                  Why and how?
+                </a>
+                <a
+                  className="text-xs	ml-1"
+                  href="https://doc.portkey.finance/docs/SDKs/CoreSDK/TypeScript/@portkeyServices#servicessecurity"
+                  target="_blank">
+                  View doc
+                </a>
+              </Col>
+            </Row>
+            <Row className="ml-2  mb-2">
+              <Col>
+                <Button className="min-w-52" onClick={onGetPaymentSecurity}>
+                  Get payment security list
+                </Button>
+              </Col>
+            </Row>
+            <Row className="ml-2  mb-2">
+              <Col>
+                <Space>
+                  <Input
+                    placeholder="Please enter the target chain you want to trade."
+                    value={paymentCount}
+                    suffix="ELF"
+                    onChange={e => setPaymentCount(e.target.value as ChainId)}
+                  />
+                  <Button className="min-w-52" onClick={onCheckPaymentSecurity}>
+                    check payment security list
+                  </Button>
+                </Space>
+              </Col>
+            </Row>
           </Card>
-          <br />
-          <div className="flex">
-            <Card title="Contract" className="flex-1">
-              <Space>
-                <Button onClick={onInitContract}>Init contract</Button>
-                <Button onClick={onGetBalance}>Get Balance</Button>
+          <div className="flex-1 bg-slate-50 p-4 ml-4 break-all">
+            {paymentLimit && (
+              <div>
+                <h3>PaymentLimit</h3>
+                <ReactJson src={paymentLimit} collapsed />
+              </div>
+            )}
 
-                <Button onClick={onTransfer}>Transfer</Button>
-              </Space>
+            {paymentSecurityList && (
+              <div>
+                <h3>PaymentSecurityList</h3>
+                <ReactJson src={paymentSecurityList} collapsed />
+              </div>
+            )}
+          </div>
+        </div>
+        <br />
+        <div className="flex">
+          <Card title="Contract" className="flex-1">
+            <Space>
+              <Button onClick={onInitContract}>Init contract</Button>
+              <Button onClick={onGetBalance}>Get ELF Balance</Button>
+            </Space>
+            <Divider style={{ margin: '8px 0' }} />
+
+            <Space align="start">
+              <ReactJson
+                name="TransferPrams"
+                onEdit={edit => {
+                  setTransferParams(edit.updated_src as typeof TRANSFER_PARAMS);
+                }}
+                src={transferParams}
+                collapsed
+              />
+
+              <Button onClick={onTransfer}>Transfer</Button>
+            </Space>
+
+            <Divider style={{ margin: '8px 0' }} />
+            <div>
+              <div>ManagerApprove</div>
               <br />
-            </Card>
-            <div className="flex-1 bg-slate-50 p-4 ml-4 break-all">
-              <div>
-                <h3>Init contract params</h3>
-                <ReactJson src={INIT_CONTRACT_PARAMS} collapsed />
-              </div>
-
-              <div>
-                <h3>Transfer params</h3>
-                <ReactJson src={TRANSFER_PARAMS} collapsed />
-              </div>
+              <Space align="start">
+                <ReactJson
+                  name="ApprovePrams"
+                  onEdit={edit => {
+                    setApproveParams(edit.updated_src as typeof APPROVE_PARAMS);
+                  }}
+                  src={approveParams}
+                  collapsed
+                />
+                <Button onClick={onManagerApproveHandler}>ManagerApprove</Button>
+              </Space>
+            </div>
+            <br />
+          </Card>
+          <div className="flex-1 bg-slate-50 p-4 ml-4 break-all">
+            <div>
+              <h3>Init contract params</h3>
+              <ReactJson src={INIT_CONTRACT_PARAMS} collapsed />
             </div>
           </div>
         </div>
@@ -953,24 +1285,20 @@ export default function Home() {
       <CommonBaseModal
         className={clsx('portkey-ui-modal-approval')}
         closable
-        open={open}
-        onClose={() => setOpen(false)}>
-        <GuardianApproval
-          header={<div className="p-5"></div>}
-          originChainId={state.step1FinishStore?.chainId || 'tDVW'}
-          guardianList={guardianList}
-          onConfirm={async approvalInfo => {
-            setOpen(false);
-            singleMessage.success('Approve success');
-            dispatch({ type: Actions.setState, payload: { step2FinishStore: approvalInfo } });
-          }}
-          onError={onApprovalError}
-          networkType={'TESTNET'}
-          operationType={OperationTypeEnum.communityRecovery}
-          operationDetails={JSON.stringify({
-            manager: did.didWallet.managementAccount?.address,
-          })}
-        />
+        open={Boolean(openInfo)}
+        onClose={() => setOpenType(undefined)}>
+        {guardianList && (
+          <GuardianApproval
+            header={<div className="p-5"></div>}
+            originChainId={state.step1FinishStore?.chainId || (localStorage.getItem('originChainId') as ChainId)}
+            guardianList={guardianList}
+            onConfirm={onGuardianApprovalConfirm}
+            onError={onApprovalError}
+            networkType={'TESTNET'}
+            operationType={openInfo?.operationType ?? OperationTypeEnum.communityRecovery}
+            operationDetails={openInfo?.operationDetails}
+          />
+        )}
       </CommonBaseModal>
     </PortkeyProvider>
   );

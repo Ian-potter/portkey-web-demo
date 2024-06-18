@@ -1,0 +1,62 @@
+import BigNumber from 'bignumber.js';
+import { ChainId, ChainType } from '@portkey/types';
+import moment from 'moment';
+import { ZERO, isEffectiveNumber } from '@/constants/misc';
+
+export const formatAmountShow = (
+  count: number | BigNumber | string,
+  decimal: string | number = 4,
+  roundingMode: BigNumber.RoundingMode = BigNumber.ROUND_DOWN,
+) => {
+  const bigCount = BigNumber.isBigNumber(count) ? count : new BigNumber(count || '');
+  if (bigCount.isNaN()) return '0';
+  return bigCount.decimalPlaces(Number(decimal), roundingMode).toFormat();
+};
+
+export function divDecimals(val?: BigNumber.Value, decimals: string | number = 18) {
+  if (!val) return ZERO;
+  const bigA = ZERO.plus(val);
+  if (bigA.isNaN()) return ZERO;
+  if (typeof decimals === 'string' && decimals.length > 10) return bigA.div(decimals);
+  return bigA.div(`1e${decimals}`);
+}
+
+export function timesDecimals(a?: BigNumber.Value, decimals: string | number = 18) {
+  if (!a) return ZERO;
+  const bigA = ZERO.plus(a);
+  if (bigA.isNaN()) return ZERO;
+  if (typeof decimals === 'string' && decimals.length > 10) return bigA.times(decimals);
+  return bigA.times(`1e${decimals}`);
+}
+
+export function divDecimalsStr(a?: BigNumber.Value, decimals: string | number = 8, defaultVal = '--') {
+  const n = divDecimals(a, decimals);
+  return isEffectiveNumber(n) ? n.toFormat() : defaultVal;
+}
+
+/**
+ * format address like "aaa...bbb" to "ELF_aaa...bbb_AELF"
+ * @param address -
+ * @param chainId -
+ * @param chainType -
+ * @returns
+ */
+export const addressFormat = (
+  address = 'address',
+  chainId: ChainId = 'AELF',
+  chainType: ChainType = 'aelf',
+): string => {
+  if (chainType !== 'aelf') return address;
+  const arr = address.split('_');
+  if (address.includes('_') && arr.length < 3) return address;
+  if (address.includes('_')) return `ELF_${arr[1]}_${chainId}`;
+  return `ELF_${address}_${chainId}`;
+};
+
+export const dateFormatTransTo13 = (ipt?: moment.MomentInput) => {
+  let time = String(ipt);
+  while (time.length < 13) {
+    time = time + '0';
+  }
+  return moment(Number(time)).format('MMM D , h:mm a').replace(',', 'at');
+};
